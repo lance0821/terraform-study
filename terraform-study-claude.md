@@ -705,3 +705,376 @@ This pattern gives you typed inputs, input validation, normalized locals, merged
 ## 16) The short rules to memorize
 
 Variables are the module interface. Locals are for naming and shaping expressions, not hiding everything. Use `count` for zero-or-one or nearly identical instances; use `for_each` for stable keyed infrastructure. Use `dynamic` only for repeated nested blocks. Normalize inputs early. Use `merge()` for tag overlays, `lookup()` for optional map keys, `coalesce()` for defaults, `try()` for uncertain nested fields, and `can()` mainly in validation. Use variable validation for input contracts, preconditions for assumptions, postconditions for guarantees, and checks for non-blocking health validation. Use `moved` for refactors, `import` for adoption, `removed` for giving up management, and state commands for direct state surgery. Protect secrets by understanding that `sensitive` redacts output but does not secure state; use ephemeral values when a value should not be persisted at all. Commit `.terraform.lock.hcl`, and run `fmt`, `validate`, and `plan` constantly.
+
+
+count resource:
+  aws_instance.this[*].id      → list of all IDs
+  aws_instance.this[0].id      → single ID by index
+  aws_instance.this[count.index] → current index inside resource
+
+for_each resource:
+  { for k, v in aws_instance.this : k => v.id }  → map of all IDs
+  aws_instance.this["web"].id                     → single ID by key
+  each.key / each.value                           → current item inside resource
+
+  What are you iterating?
+├── list/tuple
+│   ├── need list output    → [ for v in x : v.attr ]
+│   ├── need map output     → { for v in x : v.key_attr => v.val_attr }
+│   └── need filtered list  → [ for v in x : v.attr if condition ]
+│
+└── map/object
+    ├── need list output    → [ for k, v in x : k ] or [ for k, v in x : v.attr ]
+    ├── need map output     → { for k, v in x : k => v.attr }
+    ├── need filtered map   → { for k, v in x : k => v if condition }
+    └── need grouped map    → two-step: unique keys + inner filter
+
+What resource meta-argument?
+├── on/off toggle           → count = var.enabled ? 1 : 0
+├── multiple from map/set   → for_each = var.map or toset(var.list)
+└── multiple from filtered  → for_each = { for k, v in x : k => v if condition }
+
+Referencing results:
+├── count resource    → [*] splat for all, [0] for one
+└── for_each resource → { for k, v in x : k => v.attr } for all, ["key"] for one
+
+Duplicate key error → add ... after value to group into lists
+{ for k, v in map : v.group => k... }
+
+# Terraform Data Manipulation Cheat Sheet
+
+---
+
+## For Expression Syntax
+
+```hcl
+# List output — square brackets, no =>
+[ for v in collection : v ]
+[ for v in collection : v.attribute ]
+[ for v in collection : v if condition ]
+
+# Map output — curly braces, requires =>
+{ for k, v in collection : k => v }
+{ for k, v in collection : k => v.attribute }
+{ for k, v in collection : k => v if condition }
+
+# One variable on a map — keys discarded, values only
+[ for v in map : v.attribute ]
+
+# One variable with map output — v serves as both key and value
+{ for v in list : v => "hardcoded_value" }
+
+# Grouping with ellipsis — collect duplicate keys into lists
+{ for k, v in collection : v.group_field => v.value_field... }
+```
+
+---
+
+## Iteration Rules
+
+```
+list/tuple   → one variable:  for v in list
+map/object   → two variables: for k, v in map
+set          → one variable:  for v in set (no guaranteed order)
+
+[] output → always a list, never uses =>
+{} output → always a map, ALWAYS requires k => v
+
+count resource    → [*] splat works, [0] index works
+for_each resource → [*] splat FAILS, use { for k, v in resource : k => v.attr }
+```
+
+---
+
+## Common Transformation Patterns
+
+```hcl
+# Flatten nested lists
+flatten([for k, v in map : v])
+
+# Deduplicate — preserves list type and order
+distinct([for v in collection : v.attribute])
+
+# Deduplicate — produces set, unordered
+toset([for v in collection : v.attribute])
+
+# Convert list to map keyed by attribute
+{ for v in list : v.name => v }
+
+# Filter map to subset
+{ for k, v in map : k => v if v.env == "prod" }
+
+# Filter list to subset
+[ for v in list : v if condition ]
+
+# Group by field — one step with ellipsis
+{ for k, v in collection : v.group_field => v.value_field... }
+
+# Group by field — two step (when you need to transform grouped values)
+unique_groups = toset([for k, v in collection : v.group_field])
+grouped       = { for g in local.unique_groups : g => [
+  for k, v in collection : v.value_field if v.group_field == g
+]}
+
+# Invert a map
+{ for k, v in map : v => k }
+
+# Invert with duplicates — group keys by value
+{ for k, v in map : v => k... }
+
+# Build composite key
+{ for k, v in map : "${k}-${v.env}" => v }
+
+# Multi-step transformation pipeline
+step_1 = { for k, v in source : v.env => v... }
+step_2 = { for env, items in local.step_1 : env => {
+  for item in items : item.tier => item.size...
+}}
+step_3 = { for env, tiers in local.step_2 : env => {
+  for tier, sizes in tiers : tier => {
+    count = length(sizes)
+    sizes = sizes
+  }
+}}
+```
+
+---
+
+## Key Functions
+
+```hcl
+# Safe map lookup with default
+lookup(map, key, default_value)
+lookup(var.instance_sizes, var.size, "t3.nano")
+
+# Check if value exists in list/set
+contains(list, value)
+contains(keys(map), key)   # check map key exists
+
+# String contains substring
+strcontains(string, substring)
+
+# Merge maps — second map wins on conflicts
+merge(map1, map2)
+merge(local.common_tags, { Name = var.name })
+
+# Flatten nested lists
+flatten([[1,2],[3,4]])  →  [1,2,3,4]
+
+# Get map keys as list
+keys(map)
+
+# Get map values as list
+values(map)
+
+# Count elements
+length(collection)
+
+# Remove duplicates from list — preserves order
+distinct(list)
+
+# Type coercion
+tostring(number)
+tonumber(string)
+toset(list)
+tolist(set)
+tomap(object)
+
+# Decode external data
+csvdecode(file("servers.csv"))   # → list of maps
+jsondecode(file("config.json"))  # → map or list depending on JSON
+
+# CIDR validation
+can(cidrhost(var.cidr, 0))       # use in validation blocks
+
+# String operations
+split("-", "web-prod-01")        # → ["web", "prod", "01"]
+split("-", "web-prod-01")[0]     # → "web"
+join("-", ["web", "prod", "01"]) # → "web-prod-01"
+lower(string)
+upper(string)
+trimspace(string)
+replace(string, old, new)
+```
+
+---
+
+## Resource Creation Patterns
+
+```hcl
+# for_each from map — named resources
+resource "aws_iam_role" "this" {
+  for_each = var.servers_map
+  name     = each.key
+}
+
+# for_each from list — must convert to set
+resource "aws_iam_role" "this" {
+  for_each = toset(var.server_names)
+  name     = each.key
+}
+
+# for_each from filtered collection
+resource "aws_s3_bucket_versioning" "this" {
+  for_each = { for k, v in var.buckets : k => v if v.versioning }
+  bucket   = aws_s3_bucket.this[each.key].id
+}
+
+# count for simple repetition
+resource "aws_iam_instance_profile" "this" {
+  count = 3
+  name  = "profile-${count.index}"
+}
+
+# count for conditional creation
+resource "aws_s3_bucket" "this" {
+  count  = var.create_bucket ? 1 : 0
+  bucket = var.bucket_name
+}
+
+# Cross-reference related for_each resources — always use [each.key]
+resource "aws_iam_instance_profile" "this" {
+  for_each = var.infrastructure
+  name     = "${each.key}-profile"
+  role     = aws_iam_role.this[each.key].name  # ← key alignment
+}
+```
+
+---
+
+## Output Patterns
+
+```hcl
+# Map of all resource attributes — for_each resource
+output "role_arns" {
+  value = { for k, v in aws_iam_role.this : k => v.arn }
+}
+
+# List of all resource attributes — count resource (splat)
+output "profile_names" {
+  value = aws_iam_instance_profile.this[*].name
+}
+
+# Filtered output — filter using source variable
+output "prod_role_arns" {
+  value = { for k, v in aws_iam_role.this : k => v.arn
+            if var.infrastructure[k].env == "prod" }
+}
+
+# Safe conditional output — count resource
+output "bucket_id" {
+  value = one(aws_s3_bucket.this[*].id)
+}
+
+# Sensitive output
+output "secret" {
+  value     = aws_iam_access_key.this.secret
+  sensitive = true
+}
+```
+
+---
+
+## Debugging Tools
+
+```bash
+# Open terraform console
+terraform console
+
+# Check type of any expression
+> type(local.servers_map)
+> type(var.infrastructure)
+
+# Test expressions instantly without running a plan
+> { for k, v in var.infrastructure : v.env => k... }
+> lookup(var.instance_sizes, "jumbo", "t3.nano")
+> flatten([[1,2],[3,4]])
+> split("-", "web-prod-01")
+```
+
+---
+
+## Variable Type Constraints
+
+```hcl
+# Declare with list/map — Terraform evaluates as tuple/object internally
+variable "names"   { type = list(string) }
+variable "config"  { type = map(string) }
+variable "servers" {
+  type = list(object({
+    name = string
+    env  = string
+  }))
+}
+variable "buckets" {
+  type = map(object({
+    versioning = bool
+  }))
+}
+
+# Validation patterns
+validation {
+  condition     = contains(["dev", "stage", "prod"], var.environment)
+  error_message = "Must be dev, stage, or prod."
+}
+
+validation {
+  condition     = can(cidrhost(var.cidr_block, 0))
+  error_message = "Must be a valid CIDR block."
+}
+
+validation {
+  condition     = length(var.name) <= 32
+  error_message = "Name must be 32 characters or less."
+}
+```
+
+---
+
+## Type System Quick Reference
+
+| What you declare | What Terraform infers | Iteration |
+|------------------|-----------------------|-----------|
+| `list(string)` | `tuple([string,...])` | `for v in x` |
+| `list(object)` | `tuple([object,...])` | `for v in x`, access `v.attr` |
+| `map(string)` | `object({k: string})` | `for k, v in x` |
+| `map(object)` | `object({k: object})` | `for k, v in x`, access `v.attr` |
+| `set(string)` | `set(string)` | `for v in x` (unordered) |
+
+---
+
+## Locals Best Practice
+
+```hcl
+# Shape data in locals — never in outputs or resources directly
+locals {
+  # Step 1 — raw transformation
+  all_members = flatten([for k, v in var.teams : v])
+
+  # Step 2 — build on previous local
+  unique_members = toset(local.all_members)
+
+  # Step 3 — derive final value
+  member_count = length(local.unique_members)
+}
+
+# Outputs just reference locals — no logic here
+output "member_count" { value = local.member_count }
+output "unique_members" { value = local.unique_members }
+```
+
+**Rule:** locals → where data is shaped | outputs → where data is exposed | resources → where data is consumed
+
+---
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| `aws_resource.this[*].attr` on `for_each` resource | Use `{ for k, v in aws_resource.this : k => v.attr }` |
+| `for_each = var.list` | Use `for_each = toset(var.list)` |
+| `contains(map, key)` | Use `contains(keys(map), key)` |
+| `"${single_var}"` | Use `single_var` directly — no interpolation needed |
+| Duplicate key error | Add `...` after value to group: `v.field...` |
+| `lookup(map, key)` crashes on missing key | Always provide default: `lookup(map, key, default)` |
+| Filtering on resource attribute that doesn't exist | Filter on source variable instead: `var.infrastructure[k].env` |

@@ -1,0 +1,10 @@
+{
+  "prod": {
+    "CostCenter": "engineering",
+    "Criticality": "high"
+  },
+  "dev": {
+    "CostCenter": "engineering",
+    "Criticality": "low"
+  }
+}

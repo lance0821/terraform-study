@@ -1,0 +1,29 @@
+# Terraform
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform/
+.terraform.lock.hcl
+
+# Local .terraform directories
+**/.terraform/*
+
+# Ignore editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Ignore backup files
+*~
+*.bak
+
+# Ignore provider plugins (if any are downloaded locally)
+.terraform/providers/

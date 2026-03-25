@@ -1,0 +1,6 @@
+name,environment,instance_type,region
+web-prod-01,prod,t3.micro,us-east-1
+web-prod-02,prod,t3.micro,us-east-1
+api-dev-01,dev,t3.nano,us-west-2
+db-prod-01,prod,t3.small,us-east-1
+api-prod-01,prod,t3.micro,us-east-1
