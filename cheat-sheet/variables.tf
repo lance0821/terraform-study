@@ -1,4 +1,4 @@
 variable "environments" {
-    type = set(string)
-    default = ["dev", "prod"]
+  type    = set(string)
+  default = ["dev", "prod"]
 }

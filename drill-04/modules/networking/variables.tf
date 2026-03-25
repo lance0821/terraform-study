@@ -1,8 +1,8 @@
 variable "name" {
-    type = string
-    default = "default"
-    }
+  type    = string
+  default = "default"
+}
 variable "allowed_ports" {
-    type = list(number)
-    default = [80, 22, 443]
+  type    = list(number)
+  default = [80, 22, 443]
 }

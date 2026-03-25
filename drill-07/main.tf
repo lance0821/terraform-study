@@ -18,6 +18,6 @@ module "compute" {
   instance_profile_name = module.iam.instance_profile_name
   name_prefix           = module.naming.prefix
   security_group_id     = module.networking.security_group_id
-  subnet_id = module.networking.subnet_id
+  subnet_id             = module.networking.subnet_id
 }
 

@@ -30,7 +30,7 @@ data "aws_iam_policy_document" "trust_policy" {
 
 data "aws_iam_policy_document" "base_permissions" {
   statement {
-    actions = ["ssm:StartSession", "ssm:DescribeSessions"]
+    actions   = ["ssm:StartSession", "ssm:DescribeSessions"]
     resources = ["*"]
   }
 }

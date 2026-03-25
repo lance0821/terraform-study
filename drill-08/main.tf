@@ -61,9 +61,9 @@ output "bucket_ids" {
 }
 
 output "versioned_buckets" {
-  value = [for k,v in var.websites : k if v.versioning]
+  value = [for k, v in var.websites : k if v.versioning]
 }
 
 output "prod_buckets" {
-  value = [for k,v in var.websites : k if v.environment == "prod"]
+  value = [for k, v in var.websites : k if v.environment == "prod"]
 }

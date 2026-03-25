@@ -1,5 +1,5 @@
 resource "aws_iam_role" "this" {
-  name          = "${var.name}-ec2-s3-access-role"
+  name               = "${var.name}-ec2-s3-access-role"
   assume_role_policy = data.aws_iam_policy_document.trust_policy.json
 }
 

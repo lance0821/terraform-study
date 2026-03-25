@@ -96,11 +96,11 @@
 # output "number_infra"{
 #     value = local.number_infra
 # }
-   
+
 # output "infra" {
 #     value = local.infra
 # }
-     
+
 # output "infra_count" {
 #     value = local.infra_count
 # }

@@ -1512,3 +1512,195 @@ resource "aws_iam_role_policy_attachment" "ssm" {
 | `iam_instance_profile = aws_iam_instance_profile.this.id` | Use `.name` not `.id` |
 | `Principal = { type = "*" }` for public access | Use `Principal = "*"` (string not object) |
 | `assume_role_policy = data.aws_iam_policy_document.permissions.json` | Trust policy goes on role, not permissions |
+
+# for_each Resource Patterns Reference
+
+## The Core Mental Model
+
+```
+k  → the key (string name/identifier)
+v  → the value (full object from the map)
+v.attribute → one specific field from the object
+
+When you need a list of names     → return k
+When you need a list of values    → return v.attribute  
+When you need a map               → return k => something
+When you need the full object     → return v
+```
+
+---
+
+## for_each Sources
+
+```hcl
+# From a map variable — most common
+resource "aws_s3_bucket" "this" {
+  for_each = var.buckets
+}
+
+# From a list — must convert to set first
+resource "aws_s3_bucket" "this" {
+  for_each = toset(var.bucket_names)
+}
+
+# From a filtered map — only matching entries
+resource "aws_s3_bucket_versioning" "this" {
+  for_each = { for k, v in var.buckets : k => v if v.versioning }
+}
+
+# From another resource — iterate existing resources
+resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  for_each = aws_s3_bucket_versioning.this  # inherits same keys
+}
+```
+
+---
+
+## Referencing Values Inside a Resource
+
+```hcl
+resource "aws_s3_bucket" "this" {
+  for_each = var.buckets
+
+  bucket = "myapp-${each.key}"              # each.key = map key e.g. "logs"
+  tags   = { Name = each.value.name }       # each.value = full object
+  region = each.value.region                # each.value.attr = specific field
+}
+```
+
+---
+
+## Cross-Referencing Related Resources
+
+**Rule: Always use `[each.key]` to match resources that iterate the same source**
+
+```hcl
+# Both resources iterate var.buckets → keys align automatically
+resource "aws_s3_bucket" "this" {
+  for_each = var.buckets
+  bucket   = "myapp-${each.key}"
+}
+
+resource "aws_s3_bucket_versioning" "this" {
+  for_each = { for k, v in var.buckets : k => v if v.versioning }
+  bucket   = aws_s3_bucket.this[each.key].id   # ← [each.key] links them
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  for_each = aws_s3_bucket_versioning.this
+  bucket   = aws_s3_bucket.this[each.key].id   # ← same pattern
+}
+```
+
+---
+
+## Accessing Variable Data When each.value Doesn't Have It
+
+When `for_each` iterates a resource (not a variable), `each.value` is the resource object — not your original variable data. Use `var.source[each.key]` to get back to the original data.
+
+```hcl
+resource "aws_s3_bucket_lifecycle_configuration" "this" {
+  for_each = aws_s3_bucket_versioning.this  # each.value = versioning resource
+
+  # each.value.lifecycle_days → WRONG, versioning resource has no lifecycle_days
+  # var.buckets[each.key].lifecycle_days → CORRECT, looks up original variable
+  noncurrent_days = var.buckets[each.key].lifecycle_days
+}
+```
+
+---
+
+## Output Patterns for for_each Resources
+
+```hcl
+# Map of name → id (most common)
+output "bucket_ids" {
+  value = { for k, v in aws_s3_bucket.this : k => v.id }
+}
+
+# List of names only
+output "bucket_names" {
+  value = [ for k, v in aws_s3_bucket.this : k ]
+}
+
+# Filtered map — only prod buckets
+output "prod_bucket_ids" {
+  value = { for k, v in aws_s3_bucket.this : k => v.id
+            if var.buckets[k].environment == "prod" }
+}
+
+# Map of name → multiple attributes
+output "bucket_details" {
+  value = { for k, v in aws_s3_bucket.this : k => {
+    id  = v.id
+    arn = v.arn
+  }}
+}
+```
+
+---
+
+## Filtered for_each Patterns
+
+```hcl
+# Only where bool is true
+for_each = { for k, v in var.buckets : k => v if v.versioning }
+
+# Only where string matches
+for_each = { for k, v in var.servers : k => v if v.env == "prod" }
+
+# Only where value is in a list
+for_each = { for k, v in var.servers : k => v
+             if contains(["web", "api"], v.tier) }
+
+# Only where number exceeds threshold
+for_each = { for k, v in var.servers : k => v if v.size_gb > 100 }
+
+# Exclude specific keys
+for_each = { for k, v in var.buckets : k => v if k != "staging" }
+```
+
+---
+
+## count vs for_each Decision
+
+| Situation | Use |
+|-----------|-----|
+| Simple on/off toggle | `count = var.enabled ? 1 : 0` |
+| Fixed number of copies | `count = 3` |
+| Named resources from a map | `for_each = var.map` |
+| Named resources from a list | `for_each = toset(var.list)` |
+| Conditional subset of a collection | `for_each = { for k, v in x : k => v if condition }` |
+
+---
+
+## Referencing count vs for_each Results
+
+```hcl
+# count — indexed, use [*] splat or [0] index
+aws_instance.this[*].id       # list of all IDs
+aws_instance.this[0].id       # first ID only
+aws_instance.this[count.index] # current index inside resource
+
+# for_each — named, use for expression or ["key"]
+{ for k, v in aws_instance.this : k => v.id }  # map of all IDs
+aws_instance.this["web"].id                     # specific instance by key
+aws_instance.this[each.key].id                  # current key inside related resource
+
+# NEVER use splat [*] on for_each resources — it will fail
+aws_instance.this[*].id  # ERROR if resource uses for_each
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| `for_each = var.list` | `for_each = toset(var.list)` |
+| `for_each = var.map` then `each.value.missing_attr` | Check `var.map` object shape — attribute may not exist |
+| `aws_resource.this[*].attr` on `for_each` resource | Use `{ for k, v in aws_resource.this : k => v.attr }` |
+| `each.value.lifecycle_days` when iterating another resource | Use `var.source[each.key].lifecycle_days` |
+| `aws_resource.this.id` without index | Must use `[each.key]` or `["key"]` — resource is a map |
+| Returning `v` when you want just the name | Return `k` for the name, `v` for the full object |
+| Returning `k` when you want the value | Return `v.attribute` for a specific field |

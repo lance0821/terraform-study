@@ -1,10 +1,10 @@
 variable "name" {
-    type = string
-    default = "default"
+  type    = string
+  default = "default"
 }
 
 variable "instance_type" {
-  type = string
+  type    = string
   default = "t3.nano"
   validation {
     condition     = contains(["t3.nano", "t3.micro", "t3.small"], var.instance_type)
@@ -13,5 +13,5 @@ variable "instance_type" {
 }
 
 variable "security_group_id" {
-    type = string
+  type = string
 }

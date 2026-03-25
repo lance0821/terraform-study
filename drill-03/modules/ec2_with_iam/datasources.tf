@@ -34,6 +34,6 @@ data "aws_iam_policy_document" "s3_access" {
       "s3:GetObject",
       "s3:ListBucket",
     ]
-    resources = ["arn:aws:s3:::${var.s3_bucket_name}","arn:aws:s3:::${var.s3_bucket_name}/*"]
+    resources = ["arn:aws:s3:::${var.s3_bucket_name}", "arn:aws:s3:::${var.s3_bucket_name}/*"]
   }
 }
