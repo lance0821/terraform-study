@@ -1370,3 +1370,145 @@ output "unique_members" { value = local.unique_members }
 | Duplicate key error | Add `...` after value to group: `v.field...` |
 | `lookup(map, key)` crashes on missing key | Always provide default: `lookup(map, key, default)` |
 | Filtering on resource attribute that doesn't exist | Filter on source variable instead: `var.infrastructure[k].env` |
+
+
+# IAM Chain Reference
+
+## The 5 Resources — Always in This Order
+
+```
+1. data "aws_iam_policy_document" "trust"       → WHO can assume the role
+2. data "aws_iam_policy_document" "permissions"  → WHAT the role can do
+3. resource "aws_iam_role"                       → THE role itself
+4. resource "aws_iam_role_policy"                → ATTACHES permissions to role
+5. resource "aws_iam_instance_profile"           → EC2 WRAPPER for the role
+```
+
+---
+
+## The 4 Critical Connections
+
+```hcl
+# 1. Role gets the TRUST policy — controls who can assume it
+resource "aws_iam_role" "this" {
+  assume_role_policy = data.aws_iam_policy_document.trust.json
+}
+
+# 2. Role policy gets PERMISSIONS — controls what it can do
+# 3. Role policy references role by .id — internal AWS relationship
+resource "aws_iam_role_policy" "this" {
+  role   = aws_iam_role.this.id       # ← .id not .name or .arn
+  policy = data.aws_iam_policy_document.permissions.json
+}
+
+# 4. Instance profile references role by .name — EC2 needs the name
+resource "aws_iam_instance_profile" "this" {
+  role = aws_iam_role.this.name       # ← .name not .id or .arn
+}
+```
+
+---
+
+## Memory Hook
+
+```
+role_policy  → .id    (internal AWS relationship)
+profile      → .name  (EC2 sees it externally by name)
+```
+
+---
+
+## Complete Skeleton
+
+```hcl
+data "aws_iam_policy_document" "trust" {
+  statement {
+    actions = ["sts:AssumeRole"]
+    principals {
+      type        = "Service"
+      identifiers = ["ec2.amazonaws.com"]
+    }
+  }
+}
+
+data "aws_iam_policy_document" "permissions" {
+  statement {
+    actions   = ["s3:GetObject", "s3:ListBucket"]
+    resources = ["arn:aws:s3:::my-bucket/*"]
+  }
+}
+
+resource "aws_iam_role" "this" {
+  name               = "${var.name}-role"
+  assume_role_policy = data.aws_iam_policy_document.trust.json
+}
+
+resource "aws_iam_role_policy" "this" {
+  name   = "${var.name}-policy"
+  role   = aws_iam_role.this.id
+  policy = data.aws_iam_policy_document.permissions.json
+}
+
+resource "aws_iam_instance_profile" "this" {
+  name = "${var.name}-profile"
+  role = aws_iam_role.this.name
+}
+
+resource "aws_instance" "this" {
+  ami                  = data.aws_ami.al2023.id
+  instance_type        = var.instance_type
+  iam_instance_profile = aws_iam_instance_profile.this.name  # ← profile .name
+}
+```
+
+---
+
+## Service Principals
+
+| Service | Principal |
+|---------|-----------|
+| EC2 | `ec2.amazonaws.com` |
+| Lambda | `lambda.amazonaws.com` |
+| ECS Task | `ecs-tasks.amazonaws.com` |
+| RDS | `rds.amazonaws.com` |
+| SSM | `ssm.amazonaws.com` |
+
+---
+
+## Inline vs Managed Policy
+
+```hcl
+# Inline — permissions specific to one role
+resource "aws_iam_role_policy" "this" {
+  role   = aws_iam_role.this.id
+  policy = data.aws_iam_policy_document.permissions.json
+}
+
+# Managed — reusable across multiple roles
+resource "aws_iam_policy" "this" {
+  policy = data.aws_iam_policy_document.permissions.json
+}
+
+resource "aws_iam_role_policy_attachment" "this" {
+  role       = aws_iam_role.this.name    # ← .name not .id
+  policy_arn = aws_iam_policy.this.arn
+}
+
+# AWS Managed Policy — attach existing AWS policy directly
+resource "aws_iam_role_policy_attachment" "ssm" {
+  role       = aws_iam_role.this.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+```
+
+---
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| `role = aws_iam_role.this.arn` in instance profile | Use `.name` not `.arn` |
+| `role = aws_iam_role.this.name` in role policy | Use `.id` not `.name` |
+| `iam_instance_profile = aws_iam_instance_profile.this.id` | Use `.name` not `.id` |
+| `Principal = { type = "*" }` for public access | Use `Principal = "*"` (string not object) |
+| `assume_role_policy = data.aws_iam_policy_document.permissions.json` | Trust policy goes on role, not permissions |
