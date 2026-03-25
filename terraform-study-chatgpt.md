@@ -965,39 +965,73 @@ For clean printing:
 - keep code blocks wrapped and page width moderate
 
 
-count resource:
-  aws_instance.this[*].id      → list of all IDs
-  aws_instance.this[0].id      → single ID by index
-  aws_instance.this[count.index] → current index inside resource
+# Iteration Reference
 
-for_each resource:
-  { for k, v in aws_instance.this : k => v.id }  → map of all IDs
-  aws_instance.this["web"].id                     → single ID by key
-  each.key / each.value                           → current item inside resource
+## Referencing count vs for_each Resources
 
-  What are you iterating?
-├── list/tuple
-│   ├── need list output    → [ for v in x : v.attr ]
-│   ├── need map output     → { for v in x : v.key_attr => v.val_attr }
-│   └── need filtered list  → [ for v in x : v.attr if condition ]
-│
-└── map/object
-    ├── need list output    → [ for k, v in x : k ] or [ for k, v in x : v.attr ]
-    ├── need map output     → { for k, v in x : k => v.attr }
-    ├── need filtered map   → { for k, v in x : k => v if condition }
-    └── need grouped map    → two-step: unique keys + inner filter
+### `count` resources
+```hcl
+aws_instance.this[*].id          # list of all IDs (splat)
+aws_instance.this[0].id          # single ID by index
+aws_instance.this[count.index]   # current index inside resource
+```
 
-What resource meta-argument?
-├── on/off toggle           → count = var.enabled ? 1 : 0
-├── multiple from map/set   → for_each = var.map or toset(var.list)
-└── multiple from filtered  → for_each = { for k, v in x : k => v if condition }
+### `for_each` resources
+```hcl
+{ for k, v in aws_instance.this : k => v.id }  # map of all IDs
+aws_instance.this["web"].id                     # single ID by key
+each.key / each.value                           # current item inside resource
+```
 
-Referencing results:
-├── count resource    → [*] splat for all, [0] for one
-└── for_each resource → { for k, v in x : k => v.attr } for all, ["key"] for one
+---
 
-Duplicate key error → add ... after value to group into lists
+## Iteration Decision Tree
+
+### What are you iterating?
+
+**list/tuple**
+- need list output → `[ for v in x : v.attr ]`
+- need map output → `{ for v in x : v.key_attr => v.val_attr }`
+- need filtered list → `[ for v in x : v.attr if condition ]`
+
+**map/object**
+- need list output → `[ for k, v in x : k ]` or `[ for k, v in x : v.attr ]`
+- need map output → `{ for k, v in x : k => v.attr }`
+- need filtered map → `{ for k, v in x : k => v if condition }`
+- need grouped map → two-step: unique keys + inner filter
+
+---
+
+## What Resource Meta-Argument?
+
+| Use Case | Pattern |
+|----------|---------|
+| on/off toggle | `count = var.enabled ? 1 : 0` |
+| multiple from map/set | `for_each = var.map` or `for_each = toset(var.list)` |
+| multiple from filtered | `for_each = { for k, v in x : k => v if condition }` |
+
+---
+
+## Referencing Results
+
+| Resource type | Get all | Get one |
+|---------------|---------|---------|
+| `count` | `aws_resource.this[*].attr` | `aws_resource.this[0].attr` |
+| `for_each` | `{ for k, v in aws_resource.this : k => v.attr }` | `aws_resource.this["key"].attr` |
+
+---
+
+## Duplicate Key Error
+
+When two items produce the same key, add `...` after the value to group into lists:
+
+```hcl
+# Error — duplicate keys
+{ for k, v in map : v.group => k }
+
+# Fix — ellipsis groups duplicates into a list
 { for k, v in map : v.group => k... }
+```
 
 # Terraform Data Manipulation Cheat Sheet
 
